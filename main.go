@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/gin-contrib/cors"
+	"github.com/gin-contrib/static"
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 	"gorm.io/driver/mysql"
@@ -82,12 +83,12 @@ func initDB() {
 		db.Create(&staff)
 		db.Create(&Employee{UserID: staff.ID, Nama: "Irham Akhbar", NIP: "STF001", Jabatan: "Staff Administrasi", Divisi: "General Affair"})
 
-		// 4. TEKNISI
+		// 3. TEKNISI
 		teknisi := User{Email: "teknisi@kantor.com", Password: "123", Role: "user"}
 		db.Create(&teknisi)
 		db.Create(&Employee{UserID: teknisi.ID, Nama: "Rafly Adillah", NIP: "TEK001", Jabatan: "Teknisi Jaringan", Divisi: "IT Support"})
 
-		// 5. SECURITY
+		// 4. SECURITY
 		security := User{Email: "security@kantor.com", Password: "123", Role: "user"}
 		db.Create(&security)
 		db.Create(&Employee{UserID: security.ID, Nama: "Maulana Wasi", NIP: "SEC001", Jabatan: "Kepala Keamanan", Divisi: "Security"})
@@ -153,29 +154,24 @@ func CreateUserEmployee(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "User dan Pegawai berhasil dibuat"})
 }
 
-// UPDATE: SubmitAttendance dengan Validasi 1x Sehari
 func SubmitAttendance(c *gin.Context) {
 	var input Attendance
 	if err := c.ShouldBindJSON(&input); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-
 	userID := uint(c.MustGet("user_id").(float64))
 
 	now := time.Now()
-	today := now.Format("2006-01-02") // Format YYYY-MM-DD
+	today := now.Format("2006-01-02")
 
-	// --- 1. CEK DUPLIKASI ---
-	// Cek apakah user ini sudah punya record di tanggal hari ini
+	// 1. CEK DUPLIKASI
 	var count int64
 	db.Model(&Attendance{}).Where("user_id = ? AND tanggal = ?", userID, today).Count(&count)
-
 	if count > 0 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Anda sudah melakukan absensi hari ini. Tidak bisa absen 2 kali!"})
 		return
 	}
-	// ------------------------
 
 	var emp Employee
 	db.Where("user_id = ?", userID).First(&emp)
@@ -190,7 +186,7 @@ func SubmitAttendance(c *gin.Context) {
 		return
 	}
 
-	// Logika Notifikasi Terlambat
+	// LOGIKA NOTIFIKASI TERLAMBAT
 	batasWaktu := "08:00:00"
 	if input.Status == "Hadir" && input.Waktu > batasWaktu {
 		notif := Notification{
@@ -299,10 +295,21 @@ func AuthMiddleware() gin.HandlerFunc {
 func main() {
 	initDB()
 	r := gin.Default()
+
 	config := cors.DefaultConfig()
-	config.AllowOrigins = []string{"http://localhost:5173"}
+	// UPDATE: AllowAllOrigins agar aman saat serve static file di port yang sama
+	config.AllowAllOrigins = true
 	config.AllowHeaders = []string{"Origin", "Content-Type", "Authorization"}
 	r.Use(cors.New(config))
+
+	// --- SETUP STATIC FILES (FRONTEND) ---
+	// Melayani file statis dari folder "dist"
+	r.Use(static.Serve("/", static.LocalFile("./dist", true)))
+
+	// Handle SPA: Jika route tidak ditemukan (misal /dashboard), kembalikan index.html
+	r.NoRoute(func(c *gin.Context) {
+		c.File("./dist/index.html")
+	})
 
 	api := r.Group("/api")
 	{
