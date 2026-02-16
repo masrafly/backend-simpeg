@@ -1,0 +1,30 @@
+# Tahap 1: Build Aplikasi Go
+FROM golang:1.21-alpine AS builder
+
+# Set folder kerja di dalam "container"
+WORKDIR /app
+
+# Copy file dependency dulu biar cache jalan
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy seluruh kode (termasuk folder dist frontend)
+COPY . .
+
+# Build aplikasi jadi file binary bernama "main"
+RUN go build -o main .
+
+# Tahap 2: Jalankan Aplikasi (Image lebih kecil)
+FROM alpine:latest
+
+WORKDIR /root/
+
+# Copy hasil build dari tahap 1
+COPY --from=builder /app/main .
+COPY --from=builder /app/dist ./dist
+
+# Expose port 8080
+EXPOSE 8080
+
+# Jalankan aplikasi
+CMD ["./main"]
