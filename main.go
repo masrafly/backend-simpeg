@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/gin-contrib/cors"
@@ -59,11 +60,29 @@ var jwtKey = []byte("rahasia_perusahaan_ini_harus_diganti")
 // --- INIT DATABASE & SEEDER ---
 func initDB() {
 	var err error
-	dsn := "root:@tcp(127.0.0.1:3306)/simpeg?charset=utf8mb4&parseTime=True&loc=Local"
+	var dsn string
+
+	// Ambil konfigurasi dari Environment Variables (Settingan Render)
+	dbUser := os.Getenv("DB_USER")
+	dbPass := os.Getenv("DB_PASSWORD")
+	dbHost := os.Getenv("DB_HOST")
+	dbPort := os.Getenv("DB_PORT")
+	dbName := os.Getenv("DB_NAME")
+
+	// Cek apakah variabel DB_HOST ada (artinya sedang di Render)
+	if dbHost != "" {
+		// DSN untuk Production (Render -> TiDB)
+		// Format: user:password@tcp(host:port)/dbname?charset=utf8mb4&parseTime=True&loc=Local&tls=true
+		dsn = fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?charset=utf8mb4&parseTime=True&loc=Local&tls=true",
+			dbUser, dbPass, dbHost, dbPort, dbName)
+	} else {
+		// DSN untuk Localhost (Development di laptop)
+		dsn = "root:@tcp(127.0.0.1:3306)/simpeg?charset=utf8mb4&parseTime=True&loc=Local"
+	}
 
 	db, err = gorm.Open(mysql.Open(dsn), &gorm.Config{})
 	if err != nil {
-		panic("Gagal koneksi ke Database. Pastikan XAMPP nyala dan DB 'simpeg' sudah dibuat!")
+		panic("Gagal koneksi ke Database. Cek Env Variables atau XAMPP!")
 	}
 
 	db.AutoMigrate(&User{}, &Employee{}, &Attendance{}, &Notification{})
@@ -246,6 +265,8 @@ func GetDashboardStats(c *gin.Context) {
 	var totalPegawai int64
 	var totalHadir int64
 	today := time.Now().Format("2006-01-02")
+
+	// Logging Debugging akan sangat membantu di Render
 	fmt.Println("--- DEBUG DASHBOARD ---")
 	fmt.Println("Mencari Absensi Tanggal:", today)
 
@@ -297,16 +318,17 @@ func main() {
 	r := gin.Default()
 
 	config := cors.DefaultConfig()
-	// UPDATE: AllowAllOrigins agar aman saat serve static file di port yang sama
-	config.AllowAllOrigins = true
+	config.AllowAllOrigins = true // Aman untuk Single Deployment
 	config.AllowHeaders = []string{"Origin", "Content-Type", "Authorization"}
 	r.Use(cors.New(config))
 
 	// --- SETUP STATIC FILES (FRONTEND) ---
 	// Melayani file statis dari folder "dist"
+	// Pastikan folder "dist" hasil build React sudah dicopy ke sini
 	r.Use(static.Serve("/", static.LocalFile("./dist", true)))
 
-	// Handle SPA: Jika route tidak ditemukan (misal /dashboard), kembalikan index.html
+	// Handle SPA: Jika route tidak ditemukan (misal user refresh di /dashboard),
+	// kembalikan index.html agar React Router yang menangani
 	r.NoRoute(func(c *gin.Context) {
 		c.File("./dist/index.html")
 	})
@@ -326,5 +348,5 @@ func main() {
 			protected.POST("/notifications/read", MarkNotifRead)
 		}
 	}
-	r.Run(":8080")
+	r.Run(":8080") // Render akan membaca PORT environment variable otomatis, 8080 adalah default fallback
 }
